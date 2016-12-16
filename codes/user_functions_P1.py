@@ -1,14 +1,5 @@
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import numpy as np
 import cv2
-import math, os
-import imageio
-imageio.plugins.ffmpeg.download()
-from moviepy.editor import VideoFileClip
-from IPython.display import HTML
-
-import math
 
 
 def grayscale(img):
@@ -73,9 +64,14 @@ def draw_lines(img, lines, color=[255, 0, 0], thickness=2):
     If you want to make the lines semi-transparent, think about combining
     this function with the weighted_img() function below
     """
+
+    line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+
     for line in lines:
         for x1, y1, x2, y2 in line:
-            cv2.line(img, (x1, y1), (x2, y2), color, thickness)
+            cv2.line(line_img, (x1, y1), (x2, y2), color, thickness)
+
+    return line_img
 
 
 def hough_lines(img, rho, theta, threshold, min_line_len, max_line_gap):
@@ -86,10 +82,28 @@ def hough_lines(img, rho, theta, threshold, min_line_len, max_line_gap):
     """
     lines = cv2.HoughLinesP(img, rho, theta, threshold, np.array([]), minLineLength=min_line_len,
                             maxLineGap=max_line_gap)
-    line_img = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
-    draw_lines(line_img, lines)
-    return line_img
 
+    return lines
+
+def calculate_slope(line):
+
+    return (line[0][3]-line[0][1])/(line[0][2]-line[0][0])
+
+def calculate_path_lines(raw_hough_lines):
+
+    slopes = np.zeros(raw_hough_lines.shape[0])
+    i = 0
+
+    for raw_hough_line in raw_hough_lines:
+        slopes[i] = calculate_slope(raw_hough_line)
+        i += 1
+
+    left_slope = slopes[slopes>0].mean()
+    right_slope = slopes[slopes<0].mean()
+
+    x1_left = max(raw_hough_lines[slopes > 0, :, 0])
+
+    return path_lines
 
 # Python 3 has support for cool math symbols.
 
@@ -128,9 +142,15 @@ def process_image(img, rho, hough_thres, min_line_length, max_line_gap,
     #min_line_length = 80  # minimum number of pixels making up a line
     #max_line_gap = 40  # maximum gap in pixels between connectable line segments
 
-    line_img = hough_lines(section_img, rho, theta, hough_thres, min_line_length, max_line_gap)
+    raw_hough_lines = hough_lines(section_img, rho, theta, hough_thres, min_line_length, max_line_gap)
+
+    path_lines = calculate_path_lines(raw_hough_lines)
+
+    line_img = draw_lines(img, raw_hough_lines)
+    line_img_ = draw_lines(img, path_lines, color=[0, 0, 255])
 
     result = weighted_img(line_img, img)
+    result = weighted_img(line_img_, result)
 
     return result
 
