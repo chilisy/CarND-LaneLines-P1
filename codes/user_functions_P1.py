@@ -89,7 +89,15 @@ def calculate_slope(line):
 
     return (line[0][3]-line[0][1])/(line[0][2]-line[0][0])
 
-def calculate_path_lines(raw_hough_lines):
+def extend_line(raw_line, ysize):
+    upper_lim = int(ysize*0.6)
+    lower_lim = ysize
+
+    middle = np.array([np.mean([raw_line[0,0], raw_line[0,2]]), np.mean([raw_line[0,1], raw_line[0,3]])], dtype=int)
+    slope = calculate_slope(raw_line)
+
+
+def calculate_path_lines(raw_hough_lines, img):
 
     slopes = np.zeros(raw_hough_lines.shape[0])
     i = 0
@@ -98,10 +106,14 @@ def calculate_path_lines(raw_hough_lines):
         slopes[i] = calculate_slope(raw_hough_line)
         i += 1
 
-    left_slope = slopes[slopes>0].mean()
-    right_slope = slopes[slopes<0].mean()
+    left_line = np.array([[raw_hough_lines[slopes>0, :, 0].mean(), raw_hough_lines[slopes>0, :, 1].mean(),
+                  raw_hough_lines[slopes>0, :, 2].mean(), raw_hough_lines[slopes>0, :, 3].mean()]], dtype=int)
+    right_line = np.array([[raw_hough_lines[slopes < 0, :, 0].mean(), raw_hough_lines[slopes < 0, :, 1].mean(),
+                    raw_hough_lines[slopes < 0, :, 2].mean(), raw_hough_lines[slopes < 0, :, 3].mean()]], dtype=int)
+    left_line_extend = extend_line(left_line, img.shape[0])
+    right_line_extend = extend_line(right_line, img.shape[0])
 
-    x1_left = max(raw_hough_lines[slopes > 0, :, 0])
+    path_lines = np.array([left_line, right_line])
 
     return path_lines
 
@@ -144,10 +156,10 @@ def process_image(img, rho, hough_thres, min_line_length, max_line_gap,
 
     raw_hough_lines = hough_lines(section_img, rho, theta, hough_thres, min_line_length, max_line_gap)
 
-    path_lines = calculate_path_lines(raw_hough_lines)
+    path_lines = calculate_path_lines(raw_hough_lines, img)
 
     line_img = draw_lines(img, raw_hough_lines)
-    line_img_ = draw_lines(img, path_lines, color=[0, 0, 255])
+    line_img_ = draw_lines(line_img, path_lines, color=[0, 0, 255], thickness=5)
 
     result = weighted_img(line_img, img)
     result = weighted_img(line_img_, result)
