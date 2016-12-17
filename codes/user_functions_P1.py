@@ -87,14 +87,26 @@ def hough_lines(img, rho, theta, threshold, min_line_len, max_line_gap):
 
 def calculate_slope(line):
 
-    return (line[0][3]-line[0][1])/(line[0][2]-line[0][0])
+    return (line[0,3]-line[0,1])/(line[0,2]-line[0,0])
 
-def extend_line(raw_line, ysize):
+def calculate_x(point, slope, lim_y):
+
+    b = -point[0]*slope+point[1]
+    x = (lim_y-b)/slope
+
+    return x
+
+def extend_line(raw_line, ysize, xsize):
     upper_lim = int(ysize*0.6)
     lower_lim = ysize
 
     middle = np.array([np.mean([raw_line[0,0], raw_line[0,2]]), np.mean([raw_line[0,1], raw_line[0,3]])], dtype=int)
     slope = calculate_slope(raw_line)
+
+    upper_x = max(min(calculate_x(middle, slope, upper_lim).astype(int), xsize), 0)
+    lower_x = max(min(calculate_x(middle, slope, lower_lim).astype(int), xsize), 0)
+
+    return np.array([[upper_x, upper_lim, lower_x, lower_lim]])
 
 
 def calculate_path_lines(raw_hough_lines, img):
@@ -106,14 +118,28 @@ def calculate_path_lines(raw_hough_lines, img):
         slopes[i] = calculate_slope(raw_hough_line)
         i += 1
 
-    left_line = np.array([[raw_hough_lines[slopes>0, :, 0].mean(), raw_hough_lines[slopes>0, :, 1].mean(),
-                  raw_hough_lines[slopes>0, :, 2].mean(), raw_hough_lines[slopes>0, :, 3].mean()]], dtype=int)
-    right_line = np.array([[raw_hough_lines[slopes < 0, :, 0].mean(), raw_hough_lines[slopes < 0, :, 1].mean(),
-                    raw_hough_lines[slopes < 0, :, 2].mean(), raw_hough_lines[slopes < 0, :, 3].mean()]], dtype=int)
-    left_line_extend = extend_line(left_line, img.shape[0])
-    right_line_extend = extend_line(right_line, img.shape[0])
+    raw_hough_lines = raw_hough_lines[abs(slopes)>0.5]
+    slopes = slopes[abs(slopes) > 0.5]
 
-    path_lines = np.array([left_line, right_line])
+    raw_hough_lines = raw_hough_lines[abs(slopes)<0.9]
+    slopes = slopes[abs(slopes) < 0.9]
+
+    if slopes[slopes>0].size>0:
+        left_line = np.array([[raw_hough_lines[slopes>0, :, 0].mean(), raw_hough_lines[slopes>0, :, 1].mean(),
+                  raw_hough_lines[slopes>0, :, 2].mean(), raw_hough_lines[slopes>0, :, 3].mean()]], dtype=int)
+        left_line_extend = extend_line(left_line, img.shape[0], img.shape[1])
+    else:
+        left_line_extend = np.array([[0, 0, 0, 0]])
+
+    if slopes[slopes<0].size>0:
+        right_line = np.array([[raw_hough_lines[slopes < 0, :, 0].mean(), raw_hough_lines[slopes < 0, :, 1].mean(),
+                    raw_hough_lines[slopes < 0, :, 2].mean(), raw_hough_lines[slopes < 0, :, 3].mean()]], dtype=int)
+        right_line_extend = extend_line(right_line, img.shape[0], img.shape[1])
+    else:
+        right_line_extend = np.array([[0, 0, 0, 0]])
+
+
+    path_lines = np.array([left_line_extend, right_line_extend])
 
     return path_lines
 
@@ -135,10 +161,19 @@ def weighted_img(img, initial_img, α=0.8, β=1., λ=0.):
 
 
 def process_image(img, rho, hough_thres, min_line_length, max_line_gap,
-                  theta = np.pi/180, kernel_size = 5, upper_thres = 150, lower_thres = 50,
+                  theta = np.pi/180, kernel_size = 5, upper_thres = 150, lower_thres = 70,
                   v_coeff = [0.6, 0.47, 0.53]):
     # NOTE: The output you return should be a color image (3 channel) for processing video below
     # you should return the final output (image with lines are drawn on lanes)
+
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    useHSV = False
+
+    if useHSV:
+        img_show = img
+        img = hsv
+    else:
+        img_show = img
 
     grayimg = grayscale(img)
     blurimg = gaussian_blur(grayimg, kernel_size)
@@ -158,11 +193,12 @@ def process_image(img, rho, hough_thres, min_line_length, max_line_gap,
 
     path_lines = calculate_path_lines(raw_hough_lines, img)
 
-    line_img = draw_lines(img, raw_hough_lines)
-    line_img_ = draw_lines(line_img, path_lines, color=[0, 0, 255], thickness=5)
+    line_img = draw_lines(img_show, raw_hough_lines)
+    line_img_ = draw_lines(img_show, path_lines, color=[0, 255, 255], thickness=5)
 
-    result = weighted_img(line_img, img)
+    result = weighted_img(line_img, img_show)
     result = weighted_img(line_img_, result)
+    #result = weighted_img(line_img_, img_show)
 
     return result
 
