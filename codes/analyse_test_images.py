@@ -23,4 +23,4 @@ for test_image in test_images:
     plt.imshow(img_output)
 
     #plt.show()
-    mpimg.imsave(outputfolder + '/' + test_image_name[0] + '_out.jpg', img_output)
+    mpimg.imsave(outputfolder + '/' + test_image_name[0] + '_out.jpg', img_output, cmap='gray')

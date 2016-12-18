@@ -2,12 +2,15 @@ import numpy as np
 import cv2
 
 
-def grayscale(img):
+def grayscale(img, useBlue=False):
     """Applies the Grayscale transform
     This will return an image with only one color channel
     but NOTE: to see the returned image as grayscale
     you should call plt.imshow(gray, cmap='gray')"""
-    return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    if useBlue:
+        return img[:,:,2]
+    else:
+        return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     # Or use BGR2GRAY if you read an image with cv2.imread()
     # return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -118,11 +121,11 @@ def calculate_path_lines(raw_hough_lines, img):
         slopes[i] = calculate_slope(raw_hough_line)
         i += 1
 
-    raw_hough_lines = raw_hough_lines[abs(slopes)>0.5]
-    slopes = slopes[abs(slopes) > 0.5]
+    raw_hough_lines = raw_hough_lines[abs(slopes)>0.55]
+    slopes = slopes[abs(slopes) > 0.55]
 
-    raw_hough_lines = raw_hough_lines[abs(slopes)<0.9]
-    slopes = slopes[abs(slopes) < 0.9]
+    raw_hough_lines = raw_hough_lines[abs(slopes)<0.8]
+    slopes = slopes[abs(slopes) < 0.8]
 
     if slopes[slopes>0].size>0:
         left_line = np.array([[raw_hough_lines[slopes>0, :, 0].mean(), raw_hough_lines[slopes>0, :, 1].mean(),
@@ -159,13 +162,35 @@ def weighted_img(img, initial_img, α=0.8, β=1., λ=0.):
     """
     return cv2.addWeighted(initial_img, α, img, β, λ)
 
+def get_raw_lines_of_images(img, gaussian_kernel_size, canny_lower_thres, canny_upper_thres,
+                            v_coeff, hough_rho, hough_theta, hough_thres, hough_min_line_length,
+                            hough_max_line_gap, useBlue):
+
+    grayimg = grayscale(img, useBlue)
+    blurimg = gaussian_blur(grayimg, gaussian_kernel_size)
+    edges = canny(blurimg, canny_lower_thres, canny_upper_thres)
+
+    ysize = img.shape[0]
+    xsize = img.shape[1]
+    vertices = np.array([[(0, ysize), (xsize * v_coeff[1], ysize * v_coeff[0]),
+                          (xsize * v_coeff[2], ysize * v_coeff[0]), (xsize, ysize),
+                          (xsize * v_coeff[4], ysize), (xsize / 2, ysize * v_coeff[5]),
+                          (xsize * v_coeff[3], ysize)]], dtype=np.int32)
+    section_img = region_of_interest(edges, vertices)
+
+    raw_hough_lines = hough_lines(section_img, hough_rho, hough_theta, hough_thres,
+                                  hough_min_line_length, hough_max_line_gap)
+
+    return raw_hough_lines, section_img
+
 
 def process_image(img, rho, hough_thres, min_line_length, max_line_gap,
-                  theta = np.pi/180, kernel_size = 5, upper_thres = 150, lower_thres = 70,
-                  v_coeff = [0.6, 0.47, 0.53]):
+                  theta = np.pi/180, kernel_size = 7, upper_thres = 160, lower_thres = 55,
+                  v_coeff = [0.6, 0.47, 0.53, 0.2, 0.8, 0.7]):
     # NOTE: The output you return should be a color image (3 channel) for processing video below
     # you should return the final output (image with lines are drawn on lanes)
 
+    """
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     useHSV = False
 
@@ -175,30 +200,34 @@ def process_image(img, rho, hough_thres, min_line_length, max_line_gap,
     else:
         img_show = img
 
-    grayimg = grayscale(img)
-    blurimg = gaussian_blur(grayimg, kernel_size)
-    edges = canny(blurimg, lower_thres, upper_thres)
+    """
+    useBlue = False
 
-    ysize = img.shape[0]
-    xsize = img.shape[1]
-    vertices = np.array([[(0, ysize), (xsize * v_coeff[1], ysize * v_coeff[0]),
-                          (xsize * v_coeff[2], ysize * v_coeff[0]), (xsize, ysize)]], dtype=np.int32)
-    section_img = region_of_interest(edges, vertices)
-
-    #rho = 4  # distance resolution in pixels of the Hough grid
-    #min_line_length = 80  # minimum number of pixels making up a line
-    #max_line_gap = 40  # maximum gap in pixels between connectable line segments
-
-    raw_hough_lines = hough_lines(section_img, rho, theta, hough_thres, min_line_length, max_line_gap)
+    raw_hough_lines, section_img = get_raw_lines_of_images(img, kernel_size, lower_thres, upper_thres, v_coeff,
+                                              rho, theta, hough_thres, min_line_length, max_line_gap, useBlue)
 
     path_lines = calculate_path_lines(raw_hough_lines, img)
 
-    line_img = draw_lines(img_show, raw_hough_lines)
-    line_img_ = draw_lines(img_show, path_lines, color=[0, 255, 255], thickness=5)
+    if any(path_lines.sum(axis=2) == 0):
+        useBlue = True
+        raw_hough_lines, section_img = get_raw_lines_of_images(img, kernel_size-2, lower_thres, upper_thres*0.8,
+                                                               v_coeff, rho, theta, hough_thres,
+                                                               min_line_length, max_line_gap, useBlue)
+        path_lines = calculate_path_lines(raw_hough_lines, img)
 
-    result = weighted_img(line_img, img_show)
+
+    line_img = draw_lines(img, raw_hough_lines)
+    line_img_ = draw_lines(img, path_lines, color=[0, 255, 255], thickness=8)
+
+    result = weighted_img(line_img, img)
     result = weighted_img(line_img_, result)
     #result = weighted_img(line_img_, img_show)
+
+    grayimg = np.array([section_img, section_img, section_img])
+    grayimg = np.swapaxes(grayimg, 0, 2)
+    grayimg = np.swapaxes(grayimg, 0, 1)
+
+    #result = grayimg
 
     return result
 
